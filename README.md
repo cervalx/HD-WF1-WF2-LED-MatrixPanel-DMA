@@ -4,7 +4,7 @@ Custom firmware based on my [HUB75 DMA library](https://github.com/mrfaptastic/E
 * Huidu WF1 LED Controller Card based on the ESP32-S2; or
 * Huidu WF2 LED Controller Card based on the ESP32-S3.
 
-## Features
+## Features of example code
 - **Multiple Display Modes**: Three different visual modes accessible via button control
 - **Robust Real-Time Clock**: Enhanced RTC handling with NTP synchronization, data validation, and automatic fallback
 - **Deep Sleep Support**: Power-saving sleep mode with button wake-up
