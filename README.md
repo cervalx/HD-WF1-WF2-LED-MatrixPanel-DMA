@@ -13,7 +13,7 @@ Custom firmware based on my [HUB75 DMA library](https://github.com/mrfaptastic/E
 - **Animated Graphics**: Colorful animations and bouncing effects
 
 ## Huidu WF1
-These can be bought for about USD $5 and are quite good as they come with a battery and a Real Time Clock (BM8563), and a push button connected to GPIO 11 for your use.
+These can be bought for about USD $6 and are quite good as they come with a battery and a Real Time Clock (BM8563), and a push button connected to GPIO 11 for your use.
  
 Seller #1: [ https://www.aliexpress.com/item/1005005038544582.html ](https://www.aliexpress.com/item/1005006075952980.html)
 
