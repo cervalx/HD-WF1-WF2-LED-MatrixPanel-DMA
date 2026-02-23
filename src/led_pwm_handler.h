@@ -26,17 +26,17 @@ void ledFadeTask(void * parameter) {
         for (int i = BREATH_MIN; i <= BREATH_MAX; i++) {
             int duty = map(i, BREATH_MIN, BREATH_MAX, 0, pow(2, LED_RESOLUTION) - 1);
 
-            ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty));
-            ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0));
+            ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+            ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 
             delay(LED_FADE_TIME / (BREATH_MAX - BREATH_MIN));
         }
-        
+
         // Fade out
         for (int i = BREATH_MAX; i >= BREATH_MIN; i--) {
             int duty = map(i, BREATH_MIN, BREATH_MAX, 0, pow(2, LED_RESOLUTION) - 1);
-            ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty));
-            ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0));
+            ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+            ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
             delay(LED_FADE_TIME / (BREATH_MAX - BREATH_MIN));
         }
     }

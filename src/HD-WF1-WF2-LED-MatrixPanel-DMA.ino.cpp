@@ -41,8 +41,8 @@
 
 /*----------------------------- Wifi Configuration -------------------------------*/
 
-const char *wifi_ssid = "xxxx";
-const char *wifi_pass = "yyyy";
+const char *wifi_ssid = "Top_of_Zurich";
+const char *wifi_pass = "Zurichparadise";
 
 /*----------------------------- RTC and NTP -------------------------------*/
 
@@ -55,7 +55,7 @@ const char* ntpLastUpdate     = "/ntp_last_update.txt";
 
 /*-------------------------- HUB75E DMA Setup -----------------------------*/
 #define PANEL_RES_X 64      // Number of pixels wide of each INDIVIDUAL panel module. 
-#define PANEL_RES_Y 32     // Number of pixels tall of each INDIVIDUAL panel module.
+#define PANEL_RES_Y 64     // Number of pixels tall of each INDIVIDUAL panel module.
 #define PANEL_CHAIN 1      // Total number of panels chained one to another
 
 
@@ -101,7 +101,7 @@ enum DisplayMode {
 
 DisplayMode currentDisplayMode = MODE_CLOCK_WITH_ANIMATION;
 unsigned long buttonPressStartTime = 0;
-bool buttonPressHandled = false;
+bool buttonPressHandled = true;
 volatile bool buttonPressed = false;
 
 // Bouncing squares animation variables
@@ -294,11 +294,11 @@ void setup() {
     dma_display->clearScreen();
 
     dma_display->fillScreenRGB888(255,0,0);
-    delay(1000);
+    delay(100);
     dma_display->fillScreenRGB888(0,255,0);
-    delay(1000);    
+    delay(100);    
     dma_display->fillScreenRGB888(0,0,255);
-    delay(1000);       
+    delay(100);       
     dma_display->clearScreen();
     dma_display->print("Connecting");     
 
@@ -307,12 +307,53 @@ void setup() {
   WiFi.mode(WIFI_STA);
   wifiMulti.addAP(wifi_ssid, wifi_pass); // configure in the *-config.h file
 
-  // wait for WiFi connection
+  // wait for WiFi connection with timeout
   Serial.print("Waiting for WiFi to connect...");
-  while (wifiMulti.run() != WL_CONNECTED) {
+  int wifi_retry = 0;
+  const int max_wifi_retries = 30; // 30 seconds timeout
+
+  while (wifiMulti.run() != WL_CONNECTED && wifi_retry < max_wifi_retries) {
+    delay(1000);
+    wifi_retry++;
     Serial.print(".");
+
+    // Update display every 5 attempts
+    if (wifi_retry % 5 == 0) {
+      dma_display->clearScreen();
+      dma_display->setCursor(3,3);
+      dma_display->print("WiFi...");
+      dma_display->setCursor(3,13);
+      dma_display->printf("%d/%d", wifi_retry, max_wifi_retries);
+    }
   }
-  Serial.println(" connected");
+
+  if (wifiMulti.run() == WL_CONNECTED) {
+    Serial.println(" connected");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+
+    dma_display->clearScreen();
+    dma_display->setCursor(3,3);
+    dma_display->print("Connected!");
+    delay(1000);
+  } else {
+    Serial.println(" FAILED!");
+    Serial.printf("WiFi connection failed after %d attempts\n", wifi_retry);
+    Serial.printf("SSID: %s\n", wifi_ssid);
+    Serial.printf("WiFi Status: %d\n", WiFi.status());
+
+    dma_display->clearScreen();
+    dma_display->setCursor(3,3);
+    dma_display->setTextColor(dma_display->color565(255, 0, 0));
+    dma_display->print("WiFi");
+    dma_display->setCursor(3,13);
+    dma_display->print("FAILED!");
+    dma_display->setCursor(3,23);
+    dma_display->printf("S:%d", WiFi.status());
+
+    delay(5000);
+    // Continue anyway to allow OTA/recovery
+  }
     
 
   /*-------------------- --------------- --------------------*/
@@ -346,7 +387,7 @@ void setup() {
 
   /*-------------------- --------------- --------------------*/
   // BUTTON SETUP 
-  button.attach( PUSH_BUTTON_PIN, INPUT ); // USE EXTERNAL PULL-UP
+  button.attach( PUSH_BUTTON_PIN, INPUT_PULLUP ); // USE INTERNAL PULL-UP
   button.interval(5);   // DEBOUNCE INTERVAL IN MILLISECONDS
   button.setPressedState(LOW); // INDICATE THAT THE LOW STATE CORRESPONDS TO PHYSICALLY PRESSING THE BUTTON
 
@@ -379,7 +420,7 @@ void setup() {
     xTaskCreatePinnedToCore(
       ledFadeTask,            /* Task function. */
       "ledFadeTask",                 /* name of task. */
-      1000,                    /* Stack size of task */
+      4096,                    /* Stack size of task */
       NULL,                     /* parameter of the task */
       1,                        /* priority of the task */
       &Task1,                   /* Task handle to keep track of created task */
@@ -387,11 +428,12 @@ void setup() {
     
 
   /*-------------------- INIT LITTLE FS --------------------*/
-  if(!LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED)){
-      Serial.println("LittleFS Mount Failed");
-      return;
-  }
-  listDir(LittleFS, "/", 1);    
+  bool littlefs_ok = LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED);
+  if(!littlefs_ok){
+      Serial.println("LittleFS Mount Failed - continuing without filesystem");
+  } else {
+      listDir(LittleFS, "/", 1);
+  }    
  
   /*-------------------- --------------- --------------------*/
   // Init I2C for RTC
