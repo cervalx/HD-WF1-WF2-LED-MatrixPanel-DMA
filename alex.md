@@ -1,0 +1,3 @@
+- moving to prevent burn-in
+- FileSystem fix
+- lower refresh rate, flicker reduction
