@@ -2,7 +2,7 @@
 // WF1 GPIO Configuration
 
 #define RUN_LED_PIN       40
-#define PUSH_BUTTON_PIN   11
+#define PUSH_BUTTON_PIN   17
 
 // I2C RTC BM8563 I2C port
 #define BM8563_I2C_SDA    41

@@ -610,42 +610,42 @@ unsigned long last_update = 0;
 char buffer[64];
 void loop() 
 {
-    // YOU MUST CALL THIS EVERY LOOP
-    button.update();
+    // // YOU MUST CALL THIS EVERY LOOP
+    // button.update();
 
-    // Handle button press logic
-    if (button.pressed() && !buttonPressHandled) {
-        buttonPressStartTime = millis();
-        buttonPressHandled = false;
-        Serial.println("Button pressed");
-    }
+    // // Handle button press logic
+    // if (button.pressed() && !buttonPressHandled) {
+    //     buttonPressStartTime = millis();
+    //     buttonPressHandled = false;
+    //     Serial.println("Button pressed");
+    // }
     
-    if (button.isPressed() && !buttonPressHandled) {
-        // Check if button has been held for more than 2 seconds
-        if (millis() - buttonPressStartTime > 2000) {
-            Serial.println("Button held for >2s - going to sleep");
-            esp_deep_sleep_start();
-            buttonPressHandled = true;
-        }
-    }
+    // if (button.isPressed() && !buttonPressHandled) {
+    //     // Check if button has been held for more than 2 seconds
+    //     if (millis() - buttonPressStartTime > 2000) {
+    //         Serial.println("Button held for >2s - going to sleep");
+    //         esp_deep_sleep_start();
+    //         buttonPressHandled = true;
+    //     }
+    // }
     
-    if (button.released() && !buttonPressHandled) {
-        // Button was released before 2 seconds - cycle display mode
-        if (millis() - buttonPressStartTime < 2000) {
-            currentDisplayMode = (DisplayMode)((currentDisplayMode + 1) % MODE_COUNT);
-            Serial.print("Switched to display mode: ");
-            Serial.println(currentDisplayMode);
+    // if (button.released() && !buttonPressHandled) {
+    //     // Button was released before 2 seconds - cycle display mode
+    //     if (millis() - buttonPressStartTime < 2000) {
+    //         currentDisplayMode = (DisplayMode)((currentDisplayMode + 1) % MODE_COUNT);
+    //         Serial.print("Switched to display mode: ");
+    //         Serial.println(currentDisplayMode);
             
-            // Clear screen when switching modes
-            dma_display->clearScreen();
+    //         // Clear screen when switching modes
+    //         dma_display->clearScreen();
             
-            // If switching to bouncing squares, reinitialize them
-            if (currentDisplayMode == MODE_BOUNCING_SQUARES) {
-                initBouncingSquares();
-            }
-        }
-        buttonPressHandled = true;
-    }
+    //         // If switching to bouncing squares, reinitialize them
+    //         if (currentDisplayMode == MODE_BOUNCING_SQUARES) {
+    //             initBouncingSquares();
+    //         }
+    //     }
+    //     buttonPressHandled = true;
+    // }
 
     webServer.handleClient();
     delay(1);
@@ -666,6 +666,31 @@ void printBold(MatrixPanel_I2S_DMA* display, int x, int y, const char* text) {
   display->print(text);
 }
 
+// Returns NYSE session color based on NY local time
+// Pre-market: 4:00-9:29 (orange), Market: 9:30-16:00 (white), After-hours: 16:00-20:00 (navy)
+uint16_t getNYSEColor(const struct tm* ny_time) {
+  int hour = ny_time->tm_hour;
+  int min  = ny_time->tm_min;
+
+  // Pre-market: 4:00-9:29
+  if (hour >= 4 && (hour < 9 || (hour == 9 && min < 30))) {
+    return dma_display->color565(255, 165, 0); // orange
+  }
+
+  // Market open: 9:30-16:00
+  if ((hour == 9 && min >= 30) || (hour > 9 && hour < 16) || (hour == 16 && min == 0)) {
+    return dma_display->color565(255, 255, 255); // white
+  }
+
+  // After-hours: 16:00-20:00
+  if (hour >= 16 && hour < 20) {
+    return dma_display->color565(0, 0, 128); // navy
+  }
+
+  // Outside trading hours (20:00-3:59): navy
+  return dma_display->color565(0, 0, 128); // navy
+}
+
 // Clock only mode (no animation background) - dual timezone display
 void updateClockOnly() {
   if ((millis() - last_update) > 1000) {
@@ -675,7 +700,7 @@ void updateClockOnly() {
 
       // Update text scroll position every minute
       unsigned long now = millis();
-      if (now - lastTextScrollUpdate >= 1000) {
+      if (now - lastTextScrollUpdate >= 1000 * 60) {
         lastTextScrollUpdate = now;
         textScrollY += textScrollDirection;
         textScrollX += textScrollXDirection;
@@ -705,12 +730,7 @@ void updateClockOnly() {
       snprintf(buffer, 64, "ZH%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       dma_display->setTextColor(dma_display->color565(255, 0, 0));
       printBold(dma_display, textScrollX, 2 + textScrollY, buffer);
-
-      // DST indicator: orange pixel at (0,0) when European Summer Time is active
-      if (timeinfo.tm_isdst > 0) {
-        dma_display->drawPixelRGB888(0, 0, 255, 165, 0); // orange
-      }
-
+      
       // NY time — switch TZ to New York, query local time, then restore Zurich TZ
       setenv("TZ", TZ_NEW_YORK, 1);
       tzset();
@@ -718,16 +738,21 @@ void updateClockOnly() {
       getLocalTime(&ny_timeinfo);
       setenv("TZ", TZ_ZURICH, 1);
       tzset();
-
-      // NY time — bottom half
+      
+      // NY time — bottom half (color based on NYSE session)
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "NY%02d:%02d:%02d", ny_timeinfo.tm_hour, ny_timeinfo.tm_min, ny_timeinfo.tm_sec);
-      dma_display->setTextColor(dma_display->color565(255, 0, 0));
+      dma_display->setTextColor(getNYSEColor(&ny_timeinfo));
       printBold(dma_display, textScrollX, 2 + 32 + textScrollY, buffer);
 
+      // DST indicator: orange pixel at (0,0) when European Summer Time is active
+      if (timeinfo.tm_isdst > 0) {
+        dma_display->drawPixelRGB888(0, 0, 255, 165, 0); // orange
+      }
+      
       // DST indicator: orange pixel at (0,1) when US Eastern Daylight Time is active
       if (ny_timeinfo.tm_isdst > 0) {
-        dma_display->drawPixelRGB888(0, 1, 255, 165, 0); // orange
+        dma_display->drawPixelRGB888(1, 0, 255, 165, 0); // orange
       }
 
       Serial.println("Dual clock update (ZH + NY)");
