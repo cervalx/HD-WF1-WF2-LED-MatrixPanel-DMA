@@ -298,6 +298,7 @@ void setup() {
     // Display Setup
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
     dma_display->begin();
+    dma_display->setRotation(3);
     dma_display->setBrightness8(1); //0-255
     dma_display->clearScreen();
     dma_display->setTextColor(dma_display->color565(255, 0, 0));
@@ -387,17 +388,6 @@ void setup() {
   }
 
 
-  // /*
-  //   We set our ESP32 to wake up for an external trigger.
-  //   There are two types for ESP32, ext0 and ext1 .
-  // */
-  // esp_sleep_enable_ext0_wakeup((gpio_num_t)PUSH_BUTTON_PIN, 0); //1 = High, 0 = Low  
-
-  // /*-------------------- --------------- --------------------*/
-  // // BUTTON SETUP 
-  // button.attach( PUSH_BUTTON_PIN, INPUT_PULLUP ); // USE INTERNAL PULL-UP
-  // button.interval(5);   // DEBOUNCE INTERVAL IN MILLISECONDS
-  // button.setPressedState(LOW); // INDICATE THAT THE LOW STATE CORRESPONDS TO PHYSICALLY PRESSING THE BUTTON
 
 
   /*-------------------- LEDC Controller --------------------*/
@@ -610,43 +600,6 @@ unsigned long last_update = 0;
 char buffer[64];
 void loop() 
 {
-    // // YOU MUST CALL THIS EVERY LOOP
-    // button.update();
-
-    // // Handle button press logic
-    // if (button.pressed() && !buttonPressHandled) {
-    //     buttonPressStartTime = millis();
-    //     buttonPressHandled = false;
-    //     Serial.println("Button pressed");
-    // }
-    
-    // if (button.isPressed() && !buttonPressHandled) {
-    //     // Check if button has been held for more than 2 seconds
-    //     if (millis() - buttonPressStartTime > 2000) {
-    //         Serial.println("Button held for >2s - going to sleep");
-    //         esp_deep_sleep_start();
-    //         buttonPressHandled = true;
-    //     }
-    // }
-    
-    // if (button.released() && !buttonPressHandled) {
-    //     // Button was released before 2 seconds - cycle display mode
-    //     if (millis() - buttonPressStartTime < 2000) {
-    //         currentDisplayMode = (DisplayMode)((currentDisplayMode + 1) % MODE_COUNT);
-    //         Serial.print("Switched to display mode: ");
-    //         Serial.println(currentDisplayMode);
-            
-    //         // Clear screen when switching modes
-    //         dma_display->clearScreen();
-            
-    //         // If switching to bouncing squares, reinitialize them
-    //         if (currentDisplayMode == MODE_BOUNCING_SQUARES) {
-    //             initBouncingSquares();
-    //         }
-    //     }
-    //     buttonPressHandled = true;
-    // }
-
     webServer.handleClient();
     delay(1);
 
@@ -659,11 +612,13 @@ void loop()
 }
 
 // Helper function to print bold text (double-draw shifted 1px right)
-void printBold(MatrixPanel_I2S_DMA* display, int x, int y, const char* text) {
+void printBold(MatrixPanel_I2S_DMA* display, int x, int y, const char* text, bool enable) {
   display->setCursor(x, y);
   display->print(text);
-  display->setCursor(x + 1, y);
-  display->print(text);
+  if (enable) {
+    display->setCursor(x + 1, y);
+    display->print(text);
+  }
 }
 
 // Returns NYSE session color based on NY local time
@@ -729,7 +684,7 @@ void updateClockOnly() {
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "ZH%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       dma_display->setTextColor(dma_display->color565(255, 0, 0));
-      printBold(dma_display, textScrollX, 2 + textScrollY, buffer);
+      printBold(dma_display, textScrollX, 2 + textScrollY, buffer, false);
       
       // NY time — switch TZ to New York, query local time, then restore Zurich TZ
       setenv("TZ", TZ_NEW_YORK, 1);
@@ -743,13 +698,13 @@ void updateClockOnly() {
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "NY%02d:%02d:%02d", ny_timeinfo.tm_hour, ny_timeinfo.tm_min, ny_timeinfo.tm_sec);
       dma_display->setTextColor(getNYSEColor(&ny_timeinfo));
-      printBold(dma_display, textScrollX, 2 + 32 + textScrollY, buffer);
+      printBold(dma_display, textScrollX, 2 + 32 + textScrollY, buffer, false);
 
       // DST indicator: orange pixel at (0,0) when European Summer Time is active
       if (timeinfo.tm_isdst > 0) {
         dma_display->drawPixelRGB888(0, 0, 255, 165, 0); // orange
       }
-      
+
       // DST indicator: orange pixel at (0,1) when US Eastern Daylight Time is active
       if (ny_timeinfo.tm_isdst > 0) {
         dma_display->drawPixelRGB888(1, 0, 255, 165, 0); // orange
@@ -766,92 +721,3 @@ void updateClockOnly() {
     last_update = millis();
   }
 }
-
-// Clock update with animated background (original behavior)
-// void updateClockWithAnimation() {
-//     // Update time display every second
-//     if ((millis() - last_update) > 1000) {
-//         struct tm timeinfo;
-//         if (getTimeWithFallback(&timeinfo)) {
-//             memset(buffer, 0, 64);
-//             snprintf(buffer, 64, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-
-//             Serial.println("Performing screen time update...");
-//             dma_display->fillRect(0, 9, PANEL_RES_X, 9, 0x00); // wipe the section of the screen just used for the time
-//             dma_display->setCursor(8, 10);
-//             dma_display->print(buffer);
-//         } else {
-//             Serial.println("Failed to get time from all sources.");
-//             // Display error indicator
-//             dma_display->fillRect(0, 9, PANEL_RES_X, 9, 0x00);
-//             dma_display->setCursor(8, 10);
-//             dma_display->setTextColor(dma_display->color565(255, 0, 0)); // Red for error
-//             dma_display->print("NO TIME");
-//         }
-//         last_update = millis();
-//     }
-
-//     // Canvas loop (original animation)
-//     float t = (float)((millis() % 4000) / 4000.f);
-//     float tt = (float)((millis() % 16000) / 16000.f);
-
-//     for (int x = 0; x < (PANEL_RES_X * PANEL_CHAIN); x++) {
-//         // calculate the overal shade
-//         float f = (((sin(tt - (float)x / PANEL_RES_Y / 32.) * 2.f * PI) + 1) / 2) * 255;
-//         // calculate hue spectrum into rgb
-//         float r = max(min(cosf(2.f * PI * (t + ((float)x / PANEL_RES_Y + 0.f) / 3.f)) + 0.5f, 1.f), 0.f);
-//         float g = max(min(cosf(2.f * PI * (t + ((float)x / PANEL_RES_Y + 1.f) / 3.f)) + 0.5f, 1.f), 0.f);
-//         float b = max(min(cosf(2.f * PI * (t + ((float)x / PANEL_RES_Y + 2.f) / 3.f)) + 0.5f, 1.f), 0.f);
-
-//         // iterate pixels for every row
-//         for (int y = 0; y < PANEL_RES_Y; y++) {
-//             // Keep this bit clear for the clock
-//             if (y > 8 && y < 18) {
-//                 continue; // leave a black bar for the time, don't touch, this part of display is updated by the code in the clock update bit above
-//             }
-
-//             if (y * 2 < PANEL_RES_Y) {
-//                 // top-middle part of screen, transition of value
-//                 float t = (2.f * y + 1) / PANEL_RES_Y;
-//                 dma_display->drawPixelRGB888(x, y,
-//                     (r * t) * f,
-//                     (g * t) * f,
-//                     (b * t) * f);
-//             } else {
-//                 // middle to bottom of screen, transition of saturation
-//                 float t = (2.f * (PANEL_RES_Y - y) - 1) / PANEL_RES_Y;
-//                 dma_display->drawPixelRGB888(x, y,
-//                     (r * t + 1 - t) * f,
-//                     (g * t + 1 - t) * f,
-//                     (b * t + 1 - t) * f);
-//             }
-//         }
-//     }
-// }
-
-// Update clock overlay for bouncing squares mode
-// void updateClockOverlay() {
-//     if ((millis() - last_update) > 1000) {
-//         struct tm timeinfo;
-//         if (getTimeWithFallback(&timeinfo)) {
-//             memset(buffer, 0, 64);
-//             snprintf(buffer, 64, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
-            
-//             // Draw time with black background for readability
-//             dma_display->fillRect(18, 12, 28, 8, 0x0000);
-//             dma_display->setCursor(00, 14);
-//             dma_display->setTextColor(dma_display->color565(255, 255, 255));
-//             dma_display->print(buffer);
-
-//             Serial.println("Bouncing squares with clock overlay update");
-//         } else {
-//             Serial.println("Failed to get time from all sources.");
-//             // Show error in overlay
-//             dma_display->fillRect(18, 12, 28, 8, 0x0000);
-//             dma_display->setCursor(00, 14);
-//             dma_display->setTextColor(dma_display->color565(255, 0, 0));
-//             dma_display->print("ERR");
-//         }
-//         last_update = millis();
-//     }
-// } 
