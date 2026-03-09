@@ -50,9 +50,9 @@ I2C_BM8563 rtc(I2C_BM8563_DEFAULT_ADDRESS, Wire1);
 const char* ntpServer         = "time.cloudflare.com";
 const char* ntpLastUpdate     = "/ntp_last_update.txt";
 
-// NTP Clock Offset / Timezone
-#define CLOCK_GMT_OFFSET 1
-#define CLOCK_GMT_OFFSET_NY -5  // New York (EST, UTC-5)
+// POSIX timezone strings — the ESP32 applies DST rules automatically
+#define TZ_ZURICH    "CET-1CEST,M3.5.0,M10.5.0/3"   // CET(UTC+1) / CEST(UTC+2)
+#define TZ_NEW_YORK  "EST5EDT,M3.2.0,M11.1.0"         // EST(UTC-5) / EDT(UTC-4)
 
 /*-------------------------- HUB75E DMA Setup -----------------------------*/
 #define PANEL_RES_X 64      // Number of pixels wide of each INDIVIDUAL panel module. 
@@ -108,6 +108,8 @@ volatile bool buttonPressed = false;
 // Text scrolling variables
 int textScrollY = 0;
 int textScrollDirection = -1;  // -1 = moving up, +1 = moving down
+int textScrollX = 0;
+int textScrollXDirection = 1;  // +1 = moving right, -1 = moving left
 unsigned long lastTextScrollUpdate = 0;
 
 // Bouncing squares animation variables
@@ -327,7 +329,7 @@ void setup() {
     // Update display every 5 attempts
     if (wifi_retry % 5 == 0) {
       dma_display->clearScreen();
-      dma_display->setCursor(3,3);
+      dma_display->setCursor(0,0);
       dma_display->print("WiFi...");
       dma_display->setCursor(3,13);
       dma_display->printf("%d/%d", wifi_retry, max_wifi_retries);
@@ -340,7 +342,7 @@ void setup() {
     Serial.println(WiFi.localIP());
 
     dma_display->clearScreen();
-    dma_display->setCursor(3,3);
+    dma_display->setCursor(0,0);
     dma_display->print("Connected!");
     delay(1000);
   } else {
@@ -350,7 +352,7 @@ void setup() {
     Serial.printf("WiFi Status: %d\n", WiFi.status());
 
     dma_display->clearScreen();
-    dma_display->setCursor(3,3);
+    dma_display->setCursor(0,0);
     dma_display->setTextColor(dma_display->color565(255, 0, 0));
     dma_display->print("WiFi");
     dma_display->setCursor(3,13);
@@ -505,8 +507,10 @@ void setup() {
       Serial.println("Performing NTP time synchronization...");
       ESP_LOGI("ntp_update", "Updating time from NTP server");    
   
-      // Set ntp time to local
-      configTime(CLOCK_GMT_OFFSET * 3600, 0, ntpServer);
+      // Sync to UTC; the TZ string handles offset + DST automatically
+      configTime(0, 0, ntpServer);
+      setenv("TZ", TZ_ZURICH, 1);
+      tzset();
 
       // Wait for NTP sync with timeout
       int ntpRetries = 0;
@@ -654,6 +658,14 @@ void loop()
     }
 }
 
+// Helper function to print bold text (double-draw shifted 1px right)
+void printBold(MatrixPanel_I2S_DMA* display, int x, int y, const char* text) {
+  display->setCursor(x, y);
+  display->print(text);
+  display->setCursor(x + 1, y);
+  display->print(text);
+}
+
 // Clock only mode (no animation background) - dual timezone display
 void updateClockOnly() {
   if ((millis() - last_update) > 1000) {
@@ -661,13 +673,14 @@ void updateClockOnly() {
     if (getTimeWithFallback(&timeinfo)) {
       dma_display->clearScreen();
 
-      // Update text scroll position every second
+      // Update text scroll position every minute
       unsigned long now = millis();
-      if (now - lastTextScrollUpdate >= 1000 * 60) {
+      if (now - lastTextScrollUpdate >= 1000) {
         lastTextScrollUpdate = now;
         textScrollY += textScrollDirection;
+        textScrollX += textScrollXDirection;
 
-        // Reverse direction when reaching 0 or max scroll
+        // Reverse direction when reaching 0 or max scroll (Y axis)
         if (textScrollY <= 0) {
           textScrollY = 0;
           textScrollDirection = 1;
@@ -675,28 +688,48 @@ void updateClockOnly() {
           textScrollY = 20;
           textScrollDirection = -1;
         }
+
+        // Reverse direction when reaching 0 or max scroll (X axis)
+        if (textScrollX <= 0) {
+          textScrollX = 0;
+          textScrollXDirection = 1;
+          // normal limiti is 4 but if using bold text limit is 3
+        } else if (textScrollX >= 3) {
+          textScrollX = 3;
+          textScrollXDirection = -1;
+        }
       }
 
-      // Zurich (ZH) - top half
+      // Zurich (ZH) — top half (TZ already set to TZ_ZURICH)
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "ZH%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-      dma_display->setCursor(2, 2 + textScrollY);
       dma_display->setTextColor(dma_display->color565(255, 0, 0));
-      dma_display->print(buffer);
+      printBold(dma_display, textScrollX, 2 + textScrollY, buffer);
 
-      // NY time - compute offset (NY is 6 hours behind ZH: UTC-5 vs UTC+1)
-      int tz_diff = CLOCK_GMT_OFFSET_NY - CLOCK_GMT_OFFSET;  // -6 hours
-      time_t zh_epoch = mktime(&timeinfo);
-      time_t ny_epoch = zh_epoch + (tz_diff * 3600);
-      struct tm* ny_timeinfo = localtime(&ny_epoch);
+      // DST indicator: orange pixel at (0,0) when European Summer Time is active
+      if (timeinfo.tm_isdst > 0) {
+        dma_display->drawPixelRGB888(0, 0, 255, 165, 0); // orange
+      }
 
-      // NY time - bottom half
+      // NY time — switch TZ to New York, query local time, then restore Zurich TZ
+      setenv("TZ", TZ_NEW_YORK, 1);
+      tzset();
+      struct tm ny_timeinfo;
+      getLocalTime(&ny_timeinfo);
+      setenv("TZ", TZ_ZURICH, 1);
+      tzset();
+
+      // NY time — bottom half
       memset(buffer, 0, 64);
-      snprintf(buffer, 64, "NY%02d:%02d:%02d", ny_timeinfo->tm_hour, ny_timeinfo->tm_min, ny_timeinfo->tm_sec);
-      dma_display->setCursor(2, 2 + 32 + textScrollY);
+      snprintf(buffer, 64, "NY%02d:%02d:%02d", ny_timeinfo.tm_hour, ny_timeinfo.tm_min, ny_timeinfo.tm_sec);
       dma_display->setTextColor(dma_display->color565(255, 0, 0));
-      dma_display->print(buffer);
-      
+      printBold(dma_display, textScrollX, 2 + 32 + textScrollY, buffer);
+
+      // DST indicator: orange pixel at (0,1) when US Eastern Daylight Time is active
+      if (ny_timeinfo.tm_isdst > 0) {
+        dma_display->drawPixelRGB888(0, 1, 255, 165, 0); // orange
+      }
+
       Serial.println("Dual clock update (ZH + NY)");
     } else {
       Serial.println("Failed to get time from all sources.");
@@ -781,7 +814,7 @@ void updateClockOnly() {
             
 //             // Draw time with black background for readability
 //             dma_display->fillRect(18, 12, 28, 8, 0x0000);
-//             dma_display->setCursor(20, 14);
+//             dma_display->setCursor(00, 14);
 //             dma_display->setTextColor(dma_display->color565(255, 255, 255));
 //             dma_display->print(buffer);
 
@@ -790,7 +823,7 @@ void updateClockOnly() {
 //             Serial.println("Failed to get time from all sources.");
 //             // Show error in overlay
 //             dma_display->fillRect(18, 12, 28, 8, 0x0000);
-//             dma_display->setCursor(20, 14);
+//             dma_display->setCursor(00, 14);
 //             dma_display->setTextColor(dma_display->color565(255, 0, 0));
 //             dma_display->print("ERR");
 //         }
