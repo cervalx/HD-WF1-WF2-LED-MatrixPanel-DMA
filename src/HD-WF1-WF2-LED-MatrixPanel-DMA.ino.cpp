@@ -28,10 +28,7 @@
 #include <I2C_BM8563.h>   // https://github.com/tanakamasayuki/I2C_BM8563
 
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
-//#include <ElegantOTA.h> // upload firmware by going to http://<ipaddress>/update
-
 #include <ESP32Time.h>
-#include <Bounce2.h>
 
 #define fs LittleFS
 
@@ -81,9 +78,6 @@ WiFiMulti           wifiMulti;
 ESP32Time           esp32rtc;  // offset in seconds GMT+1
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 
-// INSTANTIATE A Button OBJECT FROM THE Bounce2 NAMESPACE
-Bounce2::Button button = Bounce2::Button();
-
 // ROS Task management
 TaskHandle_t Task1;
 TaskHandle_t Task2;
@@ -92,100 +86,8 @@ TaskHandle_t Task2;
 
 RTC_DATA_ATTR int bootCount = 0;
 
-// Display modes
-enum DisplayMode {
-  MODE_CLOCK_WITH_ANIMATION = 0,
-  MODE_CLOCK_ONLY = 1,
-  MODE_BOUNCING_SQUARES = 2,
-  MODE_COUNT = 3
-};
-
-DisplayMode currentDisplayMode = MODE_CLOCK_ONLY;
-unsigned long buttonPressStartTime = 0;
-bool buttonPressHandled = true;
-volatile bool buttonPressed = false;
-
-// Text scrolling variables
-int textScrollY = 0;
-int textScrollDirection = -1;  // -1 = moving up, +1 = moving down
-int textScrollX = 0;
-int textScrollXDirection = 1;  // +1 = moving right, -1 = moving left
-unsigned long lastTextScrollUpdate = 0;
-
-// Bouncing squares animation variables
-struct BouncingSquare {
-  float x, y;
-  float vx, vy;
-  uint16_t color;
-  int size;
-};
-
-const int NUM_SQUARES = 3;
-BouncingSquare squares[NUM_SQUARES];
-
-IRAM_ATTR void toggleButtonPressed() {
-  // This function will be called when the interrupt occurs on pin PUSH_BUTTON_PIN
-  buttonPressed = true;
-  ESP_LOGI("toggleButtonPressed", "Interrupt Triggered.");
-}
-
-// Initialize bouncing squares
-void initBouncingSquares() {
-  for (int i = 0; i < NUM_SQUARES; i++) {
-    squares[i].x = random(0, PANEL_RES_X - 8);
-    squares[i].y = random(0, PANEL_RES_Y - 8);
-    squares[i].vx = random(1, 4) * (random(0, 2) ? 1 : -1);
-    squares[i].vy = random(1, 4) * (random(0, 2) ? 1 : -1);
-    squares[i].size = random(4, 8);
-    squares[i].color = dma_display->color565(random(100, 255), random(100, 255), random(100, 255));
-  }
-}
-
-// Update and draw bouncing squares
-void updateBouncingSquares() {
-  dma_display->clearScreen();
-  
-  for (int i = 0; i < NUM_SQUARES; i++) {
-    // Update position
-    squares[i].x += squares[i].vx * 0.5;
-    squares[i].y += squares[i].vy * 0.5;
-    
-    // Bounce off walls
-    if (squares[i].x <= 0 || squares[i].x >= PANEL_RES_X - squares[i].size) {
-      squares[i].vx = -squares[i].vx;
-      squares[i].x = constrain(squares[i].x, 0, PANEL_RES_X - squares[i].size);
-    }
-    if (squares[i].y <= 0 || squares[i].y >= PANEL_RES_Y - squares[i].size) {
-      squares[i].vy = -squares[i].vy;
-      squares[i].y = constrain(squares[i].y, 0, PANEL_RES_Y - squares[i].size);
-    }
-    
-    // Draw square
-    dma_display->fillRect((int)squares[i].x, (int)squares[i].y, squares[i].size, squares[i].size, squares[i].color);
-  }
-}
 
 
-
-/*
-Method to print the reason by which ESP32
-has been awaken from sleep
-*/
-void print_wakeup_reason(){
-  esp_sleep_wakeup_cause_t wakeup_reason;
-
-  wakeup_reason = esp_sleep_get_wakeup_cause();
-
-  switch(wakeup_reason)
-  {
-    case ESP_SLEEP_WAKEUP_EXT0 : Serial.println("Wakeup caused by external signal using RTC_IO"); break;
-    case ESP_SLEEP_WAKEUP_EXT1 : Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
-    case ESP_SLEEP_WAKEUP_TIMER : Serial.println("Wakeup caused by timer"); break;
-    case ESP_SLEEP_WAKEUP_TOUCHPAD : Serial.println("Wakeup caused by touchpad"); break;
-    case ESP_SLEEP_WAKEUP_ULP : Serial.println("Wakeup caused by ULP program"); break;
-    default : Serial.printf("Wakeup was not caused by deep sleep: %d\n",wakeup_reason); break;
-  }
-}
 
 
 // Function that gets current epoch time
@@ -263,11 +165,7 @@ bool getTimeWithFallback(struct tm* timeinfo) {
 }
 
 // Function declarations
-// void updateClockWithAnimation();
 void updateClockOnly();
-// void updateClockOverlay();
-// void initBouncingSquares();
-// void updateBouncingSquares();
 
 //
 // Arduino Setup Task
@@ -370,22 +268,7 @@ void setup() {
   //Increment boot number and print it every reboot
   ++bootCount;
   Serial.println("Boot number: " + String(bootCount));
-
-  //Print the wakeup reason for ESP32
-  print_wakeup_reason();
-
-  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();    
-
-  if ( wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
-  {
-    dma_display->setCursor(3,6);
-    dma_display->print("Wake up!");
-    delay(1000);
-  }
-  else
-  {
-    dma_display->print("Starting.");
-  }
+  dma_display->print("Starting.");
 
 
 
@@ -587,9 +470,8 @@ void setup() {
       webServer.send(200, "text/plain", "Hi! I am here.");
     });
 
-    //ElegantOTA.begin(&webServer);    // Start ElegantOTA
     webServer.begin();
-    Serial.println("OTA HTTP server started");
+    Serial.println("HTTP server started");
 
     /*-------------------- --------------- --------------------*/
     Serial.print("IP address: ");
@@ -603,24 +485,15 @@ void setup() {
     dma_display->print(WiFi.localIP());
     dma_display->clearScreen();
     delay(3000);
-
-    // Initialize bouncing squares for animation mode
-    // initBouncingSquares();
 }
 
 unsigned long last_update = 0;
 char buffer[64];
-void loop() 
+void loop()
 {
     webServer.handleClient();
     delay(1);
-
-    // Update display based on current mode
-    switch (currentDisplayMode) {   
-        case MODE_CLOCK_ONLY:
-            updateClockOnly();
-            break;
-    }
+    updateClockOnly();
 }
 
 // Helper function to print bold text (double-draw shifted 1px right)
@@ -665,39 +538,12 @@ void updateClockOnly() {
     if (getTimeWithFallback(&timeinfo)) {
       dma_display->clearScreen();
 
-      // Update text scroll position every minute
-      unsigned long now = millis();
-      if (now - lastTextScrollUpdate >= 1000 * 60) {
-        lastTextScrollUpdate = now;
-        textScrollY += textScrollDirection;
-        textScrollX += textScrollXDirection;
-
-        // Reverse direction when reaching 0 or max scroll (Y axis)
-        if (textScrollY <= 0) {
-          textScrollY = 0;
-          textScrollDirection = 1;
-        } else if (textScrollY >= 20) {
-          textScrollY = 20;
-          textScrollDirection = -1;
-        }
-
-        // Reverse direction when reaching 0 or max scroll (X axis)
-        if (textScrollX <= 0) {
-          textScrollX = 0;
-          textScrollXDirection = 1;
-          // normal limiti is 4 but if using bold text limit is 3
-        } else if (textScrollX >= 3) {
-          textScrollX = 3;
-          textScrollXDirection = -1;
-        }
-      }
-
       // Zurich (ZH) — top half (TZ already set to TZ_ZURICH)
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "ZH%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       dma_display->setTextColor(dma_display->color565(255, 0, 0));
-      printBold(dma_display, textScrollX, 2 + textScrollY, buffer, false);
-      
+      printBold(dma_display, 0, 2, buffer, false);
+
       // NY time — switch TZ to New York, query local time, then restore Zurich TZ
       setenv("TZ", TZ_NEW_YORK, 1);
       tzset();
@@ -705,12 +551,12 @@ void updateClockOnly() {
       getLocalTime(&ny_timeinfo);
       setenv("TZ", TZ_ZURICH, 1);
       tzset();
-      
+
       // NY time — bottom half (color based on NYSE session)
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "NY%02d:%02d:%02d", ny_timeinfo.tm_hour, ny_timeinfo.tm_min, ny_timeinfo.tm_sec);
       dma_display->setTextColor(getNYSEColor(&ny_timeinfo));
-      printBold(dma_display, textScrollX, 2 + 32 + textScrollY, buffer, false);
+      printBold(dma_display, 0, 34, buffer, false);
 
       // DST indicator: orange pixel at (0,0) when European Summer Time is active
       if (timeinfo.tm_isdst > 0) {
