@@ -482,8 +482,8 @@ void setup() {
     curr_rtc_tm.tm_sec = rtcTime.seconds;       // seconds after the minute (0-59)
     curr_rtc_tm.tm_isdst = -1;                  // daylight saving time flag
 
-    // BM8563 stores UTC — compute epoch as UTC (not local time)
-    curr_rtc_ts = timegm(&curr_rtc_tm);
+    // BM8563 stores UTC — compute epoch as UTC (TZ not yet set, defaults to UTC)
+    curr_rtc_ts = mktime(&curr_rtc_tm);
     
     // Check if we need NTP update (more than 7 days old, or no previous NTP sync)
     if (ntp_last_update_ts > 0) {
