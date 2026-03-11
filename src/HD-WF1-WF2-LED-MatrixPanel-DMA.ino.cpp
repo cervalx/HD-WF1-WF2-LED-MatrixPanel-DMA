@@ -481,8 +481,9 @@ void setup() {
     curr_rtc_tm.tm_min = rtcTime.minutes;       // minutes after the hour (0-59)
     curr_rtc_tm.tm_sec = rtcTime.seconds;       // seconds after the minute (0-59)
     curr_rtc_tm.tm_isdst = -1;                  // daylight saving time flag
-    
-    curr_rtc_ts = mktime(&curr_rtc_tm);
+
+    // BM8563 stores UTC — compute epoch as UTC (not local time)
+    curr_rtc_ts = timegm(&curr_rtc_tm);
     
     // Check if we need NTP update (more than 7 days old, or no previous NTP sync)
     if (ntp_last_update_ts > 0) {
@@ -495,12 +496,10 @@ void setup() {
   if (!rtcDataValid || needNTPUpdate)
   {
       Serial.println("Performing NTP time synchronization...");
-      ESP_LOGI("ntp_update", "Updating time from NTP server");    
-  
+      ESP_LOGI("ntp_update", "Updating time from NTP server");
+
       // Sync to UTC; the TZ string handles offset + DST automatically
       configTime(0, 0, ntpServer);
-      setenv("TZ", TZ_ZURICH, 1);
-      tzset();
 
       // Wait for NTP sync with timeout
       int ntpRetries = 0;
@@ -513,25 +512,31 @@ void setup() {
       
       if (getLocalTime(&timeInfo)) {
         Serial.println("\nNTP sync successful");
-        
+
+        // Get UTC time (BM8563 must store UTC, not local time)
+        time_t utcNow;
+        time(&utcNow);
+        struct tm utcInfo;
+        gmtime_r(&utcNow, &utcInfo);
+
         // Set RTC time - setTime returns void, so we can't check its return value
         I2C_BM8563_TimeTypeDef timeStruct;
-        timeStruct.hours   = timeInfo.tm_hour;
-        timeStruct.minutes = timeInfo.tm_min;
-        timeStruct.seconds = timeInfo.tm_sec;
-        
+        timeStruct.hours   = utcInfo.tm_hour;
+        timeStruct.minutes = utcInfo.tm_min;
+        timeStruct.seconds = utcInfo.tm_sec;
+
         rtc.setTime(&timeStruct);
         Serial.println("RTC time set successfully");
 
         // Set RTC Date - setDate returns void, so we can't check its return value
         I2C_BM8563_DateTypeDef dateStruct;
-        dateStruct.weekDay = timeInfo.tm_wday;
-        dateStruct.month   = timeInfo.tm_mon + 1;
-        dateStruct.date    = timeInfo.tm_mday;
-        dateStruct.year    = timeInfo.tm_year + 1900;
-        
+        dateStruct.weekDay = utcInfo.tm_wday;
+        dateStruct.month   = utcInfo.tm_mon + 1;
+        dateStruct.date    = utcInfo.tm_mday;
+        dateStruct.year    = utcInfo.tm_year + 1900;
+
         rtc.setDate(&dateStruct);
-        Serial.printf("RTC updated to: %04d-%02d-%02d %02d:%02d:%02d\n",
+        Serial.printf("RTC updated to (UTC): %04d-%02d-%02d %02d:%02d:%02d\n",
                       dateStruct.year, dateStruct.month, dateStruct.date,
                       timeStruct.hours, timeStruct.minutes, timeStruct.seconds);
         
@@ -561,13 +566,20 @@ void setup() {
   
   // Update ESP32 internal RTC if we have valid external RTC data
   if (rtcDataValid) {
-    esp32rtc.setTime(rtcTime.seconds, rtcTime.minutes, rtcTime.hours, 
+    // BM8563 stores UTC — set TZ to UTC so mktime interprets values correctly
+    setenv("TZ", "UTC0", 1);
+    tzset();
+    esp32rtc.setTime(rtcTime.seconds, rtcTime.minutes, rtcTime.hours,
                      rtcDate.date, rtcDate.month, rtcDate.year);
-    Serial.println("ESP32 internal RTC updated from external RTC:");    
+    Serial.println("ESP32 internal RTC updated from external RTC:");
     Serial.println(esp32rtc.getTime("%A, %B %d %Y %H:%M:%S"));
   } else {
     Serial.println("Warning: No valid time source available!");
   }
+
+  // Always configure display timezone (Zurich)
+  setenv("TZ", TZ_ZURICH, 1);
+  tzset();
 
    /*-------------------- --------------- --------------------*/
 
