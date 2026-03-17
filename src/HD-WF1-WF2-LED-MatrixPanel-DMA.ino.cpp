@@ -507,7 +507,7 @@ void printBold(MatrixPanel_I2S_DMA* display, int x, int y, const char* text, boo
 }
 
 // Returns NYSE session color based on NY local time
-// Pre-market: 4:00-9:29 (orange), Market: 9:30-16:00 (white), After-hours: 16:00-20:00 (navy)
+// Pre-market: 4:00-9:29 (orange), Market: 9:30-16:00 (white), After-hours: 16:00-20:00 (blue), Closed: 20:00-3:59 (red)
 uint16_t getNYSEColor(const struct tm* ny_time) {
   int hour = ny_time->tm_hour;
   int min  = ny_time->tm_min;
@@ -524,11 +524,11 @@ uint16_t getNYSEColor(const struct tm* ny_time) {
 
   // After-hours: 16:00-20:00
   if (hour >= 16 && hour < 20) {
-    return dma_display->color565(0, 0, 128); // navy
+    return dma_display->color565(0, 0, 128); // blue
   }
 
-  // Outside trading hours (20:00-3:59): navy
-  return dma_display->color565(0, 0, 128); // navy
+  // Market closed (20:00-3:59): red
+  return dma_display->color565(255, 0, 0); // red
 }
 
 // Clock only mode (no animation background) - dual timezone display
