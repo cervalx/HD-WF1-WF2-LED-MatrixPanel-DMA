@@ -86,7 +86,12 @@ TaskHandle_t Task2;
 
 RTC_DATA_ATTR int bootCount = 0;
 
-
+// Text scrolling variables
+int textScrollY = 0;
+int textScrollDirection = -1;  // -1 = moving up, +1 = moving down
+int textScrollX = 0;
+int textScrollXDirection = 1;  // +1 = moving right, -1 = moving left
+unsigned long lastTextScrollUpdate = 0;
 
 
 
@@ -531,6 +536,47 @@ uint16_t getNYSEColor(const struct tm* ny_time) {
   return dma_display->color565(255, 0, 0); // red
 }
 
+// Calculate countdown to next NYSE market interval
+// Returns seconds remaining until next interval boundary
+unsigned long getCountdownToNextInterval(const struct tm* ny_time) {
+  int hour = ny_time->tm_hour;
+  int min  = ny_time->tm_min;
+  int sec  = ny_time->tm_sec;
+
+  int current_seconds = hour * 3600 + min * 60 + sec;
+
+  // Define interval boundaries (in seconds from midnight)
+  int boundary = 0;
+
+  // Pre-market ends at 9:30 (34200 seconds)
+  if (hour >= 4 && (hour < 9 || (hour == 9 && min < 30))) {
+    boundary = 9 * 3600 + 30 * 60; // 9:30 AM
+  }
+  // Market open ends at 16:00 (57600 seconds)
+  else if ((hour == 9 && min >= 30) || (hour > 9 && hour < 16) || (hour == 16 && min == 0)) {
+    boundary = 16 * 3600; // 4:00 PM
+  }
+  // After-hours ends at 20:00 (72000 seconds)
+  else if (hour >= 16 && hour < 20) {
+    boundary = 20 * 3600; // 8:00 PM
+  }
+  // Closed (20:00-3:59), next open is at 4:00 AM
+  else {
+    boundary = 4 * 3600; // 4:00 AM
+  }
+
+  unsigned long countdown = boundary - current_seconds;
+  return countdown;
+}
+
+// Format countdown as HH:MM:SS
+void formatCountdown(unsigned long seconds, char* buffer) {
+  unsigned long hours = seconds / 3600;
+  unsigned long minutes = (seconds % 3600) / 60;
+  unsigned long secs = seconds % 60;
+  snprintf(buffer, 16, "%02lu:%02lu:%02lu", hours, minutes, secs);
+}
+
 // Clock only mode (no animation background) - dual timezone display
 void updateClockOnly() {
   if ((millis() - last_update) > 1000) {
@@ -538,11 +584,47 @@ void updateClockOnly() {
     if (getTimeWithFallback(&timeinfo)) {
       dma_display->clearScreen();
 
+      // Update text scroll position every 60 seconds
+      unsigned long now = millis();
+      if (now - lastTextScrollUpdate >= 1000 * 60) {
+        lastTextScrollUpdate = now;
+        textScrollY += textScrollDirection;
+        textScrollX += textScrollXDirection;
+
+        // Reverse direction when reaching 0 or max scroll (Y axis)
+        if (textScrollY <= 0) {
+          textScrollY = 0;
+          textScrollDirection = 1;
+        } else if (textScrollY >= 20) {
+          textScrollY = 20;
+          textScrollDirection = -1;
+        }
+
+        // Reverse direction when reaching 0 or max scroll (X axis)
+        if (textScrollX <= 0) {
+          textScrollX = 0;
+          textScrollXDirection = 1;
+        } else if (textScrollX >= 3) {
+          textScrollX = 3;
+          textScrollXDirection = -1;
+        }
+      }
+
       // Zurich (ZH) — top half (TZ already set to TZ_ZURICH)
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "ZH%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       dma_display->setTextColor(dma_display->color565(255, 0, 0));
-      printBold(dma_display, 0, 2, buffer, false);
+      printBold(dma_display, textScrollX, 2 + textScrollY, buffer, false);
+
+      // Zurich date — centered below time
+      char date_buffer[16];
+      snprintf(date_buffer, 16, "%02d.%02d", timeinfo.tm_mday, timeinfo.tm_mon + 1);
+      int dateWidth = strlen(date_buffer) * 6; // ~6px per char
+      int dateX = (64 - dateWidth) / 2;
+      if (dateX < 0) dateX = 0;
+      dma_display->setCursor(dateX, 10 + textScrollY);
+      dma_display->setTextColor(dma_display->color565(255, 0, 0));
+      dma_display->print(date_buffer);
 
       // NY time — switch TZ to New York, query local time, then restore Zurich TZ
       setenv("TZ", TZ_NEW_YORK, 1);
@@ -556,7 +638,18 @@ void updateClockOnly() {
       memset(buffer, 0, 64);
       snprintf(buffer, 64, "NY%02d:%02d:%02d", ny_timeinfo.tm_hour, ny_timeinfo.tm_min, ny_timeinfo.tm_sec);
       dma_display->setTextColor(getNYSEColor(&ny_timeinfo));
-      printBold(dma_display, 0, 34, buffer, false);
+      printBold(dma_display, textScrollX, 34 + textScrollY, buffer, false);
+
+      // NYSE countdown — centered below NY time
+      unsigned long countdown = getCountdownToNextInterval(&ny_timeinfo);
+      char countdown_buffer[16];
+      formatCountdown(countdown, countdown_buffer);
+      int countdownWidth = strlen(countdown_buffer) * 6;
+      int countdownX = (64 - countdownWidth) / 2;
+      if (countdownX < 0) countdownX = 0;
+      dma_display->setCursor(countdownX, 42 + textScrollY);
+      dma_display->setTextColor(getNYSEColor(&ny_timeinfo));
+      dma_display->print(countdown_buffer);
 
       // DST indicator: orange pixel at (0,0) when European Summer Time is active
       if (timeinfo.tm_isdst > 0) {
